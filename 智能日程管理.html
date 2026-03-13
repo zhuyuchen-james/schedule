@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能日程管理</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -1168,25 +1169,25 @@
             </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label class="form-label">Bmob Application ID</label>
-                        <input type="text" class="form-input" id="bmob-app-id" placeholder="输入你的 Bmob Application ID">
-                        <small style="color: var(--gray-600); margin-top: 5px; display: block;">在 Bmob 控制台 - 应用管理 - 应用密钥 中获取</small>
+                        <label class="form-label">Supabase Project URL</label>
+                        <input type="text" class="form-input" id="supabase-url" placeholder="输入你的 Supabase Project URL">
+                        <small style="color: var(--gray-600); margin-top: 5px; display: block;">在 Supabase 控制台 - Project Settings - API 中获取</small>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Bmob REST API Key</label>
-                        <input type="password" class="form-input" id="bmob-api-key" placeholder="输入你的 Bmob REST API Key">
+                        <label class="form-label">Supabase Anon Key</label>
+                        <input type="password" class="form-input" id="supabase-anon-key" placeholder="输入你的 Supabase Anon Key">
                     </div>
                     <div style="background: var(--gray-100); padding: 12px; border-radius: 8px; font-size: 12px; margin-top: 10px;">
                         <strong>使用说明：</strong>
                         <ol style="margin: 8px 0 0 16px; color: var(--gray-600);">
-                            <li>访问 bmob.cn 注册账号并创建应用</li>
-                            <li>在应用管理 - 应用密钥 中获取</li>
+                            <li>访问 supabase.com 注册账号并创建项目</li>
+                            <li>在 Project Settings - API 中获取 URL 和 Anon Key</li>
                             <li>填入上方输入框，点击保存</li>
                             <li>数据将自动同步到云端，多设备共享</li>
                         </ol>
                     </div>
                     <div id="test-result" style="margin-top: 12px; display: none;"></div>
-                    <button type="button" class="btn btn-secondary" onclick="testBmobConnection()" style="margin-top: 10px;">🧪 测试连接</button>
+                    <button type="button" class="btn btn-secondary" onclick="testSupabaseConnection()" style="margin-top: 10px;">🧪 测试连接</button>
                 </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger" id="btn-disconnect" onclick="disconnectSync()" style="display: none;">断开同步</button>
@@ -1258,100 +1259,90 @@
             }
         }
 
-        // ==================== Bmob 云端同步 ====================
-        const BMob_CONFIG_KEY = 'bmob-config';
-        let bmobConfig = null;
+        // ==================== Supabase 云端同步 ====================
+        const SUPABASE_CONFIG_KEY = 'supabase-config';
+        let supabaseClient = null;
         let isSyncEnabled = false;
         let isSyncing = false;
-        const BMOb_BASE_URL = 'https://api2.bmob.cn/1/classes/Task';
 
-        // 预设的 Bmob 密钥（已预填）
-        const DEFAULT_BMob_CONFIG = {
-            appId: '568a3a19f7d432d0a12faf2001c2d92e',
-            apiKey: 'cf9cd82344650c6c2d628bcf55b0a499'
+        // 预设的 Supabase 密钥（已预填）
+        const DEFAULT_SUPABASE_CONFIG = {
+            url: 'https://wsqpdsbksxlbkcbe.supabase.co',
+            anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzcXBkc2Jrc3hsYmtjYmVjcG1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNzI2OTQsImV4cCI6MjA4ODk0ODY5NH0.ANTomam1rDU4ERmWCOtW9srY1L5UTHxFlykvRu2j1Rc'
         };
 
-        // 从localStorage加载Bmob配置
-        function loadBmobConfig() {
+        // 从localStorage加载Supabase配置
+        function loadSupabaseConfig() {
             try {
-                const stored = localStorage.getItem(BMob_CONFIG_KEY);
+                const stored = localStorage.getItem(SUPABASE_CONFIG_KEY);
                 if (stored) {
-                    bmobConfig = JSON.parse(stored);
-                    initBmob();
+                    const config = JSON.parse(stored);
+                    initSupabase(config.url, config.anonKey);
                 } else {
                     // 首次使用，自动保存预设密钥
-                    bmobConfig = DEFAULT_BMob_CONFIG;
-                    localStorage.setItem(BMob_CONFIG_KEY, JSON.stringify(bmobConfig));
-                    initBmob();
-                    console.log('已自动配置 Bmob 同步');
+                    localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(DEFAULT_SUPABASE_CONFIG));
+                    initSupabase(DEFAULT_SUPABASE_CONFIG.url, DEFAULT_SUPABASE_CONFIG.anonKey);
+                    console.log('已自动配置 Supabase 同步');
                 }
             } catch (e) {
-                console.error('加载Bmob配置失败:', e);
+                console.error('加载Supabase配置失败:', e);
             }
         }
 
-        // 初始化Bmob
-        function initBmob() {
-            if (!bmobConfig || !bmobConfig.appId || !bmobConfig.apiKey) return;
+        // 初始化Supabase
+        function initSupabase(url, anonKey) {
+            if (!url || !anonKey) return;
 
-            isSyncEnabled = true;
-            updateSyncStatus('syncing', '同步中...');
+            try {
+                supabaseClient = supabase.createClient(url, anonKey);
+                isSyncEnabled = true;
+                updateSyncStatus('syncing', '同步中...');
 
-            // 从云端加载数据
-            loadTasksFromCloud();
+                // 从云端加载数据
+                loadTasksFromCloud();
 
-            // 设置定时同步（每30秒）
-            setInterval(syncTasksToCloud, 30000);
+                // 设置定时同步（每30秒）
+                setInterval(syncTasksToCloud, 30000);
 
-            console.log('Bmob初始化成功');
-        }
-
-        // 获取Bmob请求头
-        function getBmobHeaders() {
-            return {
-                'X-Bmob-Application-Id': bmobConfig.appId,
-                'X-Bmob-REST-API-Key': bmobConfig.apiKey,
-                'Content-Type': 'application/json'
-            };
+                console.log('Supabase初始化成功');
+            } catch (e) {
+                console.error('Supabase初始化失败:', e);
+                updateSyncStatus('offline', '同步失败');
+            }
         }
 
         // 从云端加载任务
         async function loadTasksFromCloud() {
-            if (!isSyncEnabled) return;
+            if (!isSyncEnabled || !supabaseClient) return;
 
             try {
                 isSyncing = true;
                 updateSyncStatus('syncing', '同步中...');
 
-                const response = await fetch(BMOb_BASE_URL + '?order=-updatedAt', {
-                    method: 'GET',
-                    headers: getBmobHeaders()
-                });
+                const { data, error } = await supabaseClient
+                    .from('tasks')
+                    .select('*')
+                    .order('updated_at', { ascending: false });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Bmob API 错误:', response.status, errorText);
-                    throw new Error('加载失败: ' + response.status + ' - ' + errorText);
+                if (error) {
+                    throw error;
                 }
 
-                const data = await response.json();
-                const results = data.results || [];
-
-                const cloudTasks = results.map(item => {
+                const cloudTasks = (data || []).map(item => {
                     return {
-                        id: item.objectId,
+                        id: item.id,
                         title: item.title,
                         description: item.description || '',
                         project: item.project || '',
                         category: item.category || 'other',
                         priority: item.priority || 2,
                         deadline: new Date(item.deadline),
-                        startDate: item.startDate ? new Date(item.startDate) : undefined,
+                        startDate: item.start_date ? new Date(item.start_date) : undefined,
                         status: item.status || 'todo',
-                        createdAt: new Date(item.createdAt),
-                        updatedAt: new Date(item.updatedAt),
-                        taskType: item.taskType || 'single',
-                        objectId: item.objectId // 保存Bmob的对象ID
+                        createdAt: new Date(item.created_at),
+                        updatedAt: new Date(item.updated_at),
+                        taskType: item.task_type || 'single',
+                        objectId: item.id // 保存Supabase的ID
                     };
                 });
 
@@ -1376,7 +1367,7 @@
 
         // 同步任务到云端
         async function syncTasksToCloud() {
-            if (!isSyncEnabled || isSyncing) return;
+            if (!isSyncEnabled || !supabaseClient || isSyncing) return;
 
             try {
                 isSyncing = true;
@@ -1391,27 +1382,34 @@
                         category: task.category,
                         priority: task.priority,
                         deadline: task.deadline.toISOString(),
-                        startDate: task.startDate ? task.startDate.toISOString() : null,
+                        start_date: task.startDate ? task.startDate.toISOString() : null,
                         status: task.status,
-                        taskType: task.taskType || 'single'
+                        task_type: task.taskType || 'single',
+                        updated_at: new Date().toISOString()
                     };
 
                     if (task.objectId) {
                         // 更新已有任务
-                        await fetch(BMOb_BASE_URL + '/' + task.objectId, {
-                            method: 'PUT',
-                            headers: getBmobHeaders(),
-                            body: JSON.stringify(taskData)
-                        });
+                        const { error } = await supabaseClient
+                            .from('tasks')
+                            .update(taskData)
+                            .eq('id', task.objectId);
+                        if (error) throw error;
                     } else {
                         // 创建新任务
-                        const response = await fetch(BMOb_BASE_URL, {
-                            method: 'POST',
-                            headers: getBmobHeaders(),
-                            body: JSON.stringify(taskData)
-                        });
-                        const saved = await response.json();
-                        task.objectId = saved.objectId;
+                        const newTaskData = {
+                            ...taskData,
+                            id: task.id,
+                            created_at: new Date().toISOString()
+                        };
+                        const { data, error } = await supabaseClient
+                            .from('tasks')
+                            .insert(newTaskData)
+                            .select();
+                        if (error) throw error;
+                        if (data && data[0]) {
+                            task.objectId = data[0].id;
+                        }
                     }
                 }
 
@@ -1420,9 +1418,25 @@
                 console.log('同步到云端完成');
             } catch (e) {
                 console.error('同步到云端失败:', e);
-                updateSyncStatus('offline', '同步失败');
+                updateSyncStatus('offline', '同步失败: ' + e.message);
             } finally {
                 isSyncing = false;
+            }
+        }
+
+        // 删除云端任务
+        async function deleteTaskFromCloud(objectId) {
+            if (!isSyncEnabled || !supabaseClient || !objectId) return;
+
+            try {
+                const { error } = await supabaseClient
+                    .from('tasks')
+                    .delete()
+                    .eq('id', objectId);
+                if (error) throw error;
+                console.log('云端任务已删除');
+            } catch (e) {
+                console.error('删除云端任务失败:', e);
             }
         }
 
@@ -1440,13 +1454,13 @@
         // 打开同步设置弹窗
         function openSyncSettings() {
             const modal = document.getElementById('sync-modal');
-            const appIdInput = document.getElementById('bmob-app-id');
-            const apiKeyInput = document.getElementById('bmob-api-key');
+            const urlInput = document.getElementById('supabase-url');
+            const anonKeyInput = document.getElementById('supabase-anon-key');
             const disconnectBtn = document.getElementById('btn-disconnect');
             const resultDiv = document.getElementById('test-result');
 
             // 先加载已保存的配置（如果有）
-            const stored = localStorage.getItem(BMob_CONFIG_KEY);
+            const stored = localStorage.getItem(SUPABASE_CONFIG_KEY);
             let config = null;
             if (stored) {
                 try {
@@ -1455,12 +1469,12 @@
             }
 
             if (config) {
-                appIdInput.value = config.appId || '';
-                apiKeyInput.value = config.apiKey || '';
+                urlInput.value = config.url || '';
+                anonKeyInput.value = config.anonKey || '';
                 disconnectBtn.style.display = 'inline-block';
             } else {
-                appIdInput.value = '';
-                apiKeyInput.value = '';
+                urlInput.value = '';
+                anonKeyInput.value = '';
                 disconnectBtn.style.display = 'none';
             }
 
@@ -1478,14 +1492,14 @@
             document.getElementById('sync-modal').classList.remove('active');
         }
 
-        // 测试 Bmob 连接
-        async function testBmobConnection() {
-            const appId = document.getElementById('bmob-app-id').value.trim();
-            const apiKey = document.getElementById('bmob-api-key').value.trim();
+        // 测试 Supabase 连接
+        async function testSupabaseConnection() {
+            const url = document.getElementById('supabase-url').value.trim();
+            const anonKey = document.getElementById('supabase-anon-key').value.trim();
             const resultDiv = document.getElementById('test-result');
 
-            if (!appId || !apiKey) {
-                resultDiv.innerHTML = '<div style="color: var(--danger); font-size: 13px;">⚠️ 请先输入 Application ID 和 REST API Key</div>';
+            if (!url || !anonKey) {
+                resultDiv.innerHTML = '<div style="color: var(--danger); font-size: 13px;">⚠️ 请先输入 Project URL 和 Anon Key</div>';
                 resultDiv.style.display = 'block';
                 return;
             }
@@ -1494,46 +1508,39 @@
             resultDiv.style.display = 'block';
 
             try {
-                const response = await fetch(BMOb_BASE_URL + '?limit=1', {
-                    method: 'GET',
-                    headers: {
-                        'X-Bmob-Application-Id': appId,
-                        'X-Bmob-REST-API-Key': apiKey,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const testClient = supabase.createClient(url, anonKey);
+                const { data, error } = await testClient.from('tasks').select('count', { count: 'exact', head: true });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    resultDiv.innerHTML = '<div style="color: var(--success); font-size: 13px;">✅ 连接成功！云端有 ' + (data.results ? data.results.length : 0) + ' 条任务数据</div>';
-                } else if (response.status === 401) {
-                    resultDiv.innerHTML = '<div style="color: var(--danger); font-size: 13px;">❌ 密钥错误：请检查 Application ID 和 REST API Key 是否正确</div>';
-                } else if (response.status === 404) {
-                    // 表不存在，但连接是成功的
-                    resultDiv.innerHTML = '<div style="color: var(--success); font-size: 13px;">✅ 连接成功！首次使用，云端暂无数据</div>';
+                if (error) {
+                    // 可能是表不存在，但连接是成功的
+                    if (error.code === 'PGRST116') {
+                        resultDiv.innerHTML = '<div style="color: var(--success); font-size: 13px;">✅ 连接成功！首次使用，需要在数据库创建表</div>';
+                    } else {
+                        throw error;
+                    }
                 } else {
-                    resultDiv.innerHTML = '<div style="color: var(--danger); font-size: 13px;">❌ 连接失败：' + response.status + ' - ' + await response.text() + '</div>';
+                    resultDiv.innerHTML = '<div style="color: var(--success); font-size: 13px;">✅ 连接成功！云端任务表正常</div>';
                 }
             } catch (e) {
-                resultDiv.innerHTML = '<div style="color: var(--danger); font-size: 13px;">❌ 网络错误：' + e.message + '<br>请检查网络连接，或尝试使用其他浏览器</div>';
+                resultDiv.innerHTML = '<div style="color: var(--danger); font-size: 13px;">❌ 连接失败：' + e.message + '<br>请检查 URL 和 Anon Key 是否正确</div>';
                 console.error('测试连接失败:', e);
             }
         }
 
         // 保存同步设置
         function saveSyncSettings() {
-            const appId = document.getElementById('bmob-app-id').value.trim();
-            const apiKey = document.getElementById('bmob-api-key').value.trim();
+            const url = document.getElementById('supabase-url').value.trim();
+            const anonKey = document.getElementById('supabase-anon-key').value.trim();
 
-            if (!appId || !apiKey) {
-                alert('请输入 Application ID 和 REST API Key');
+            if (!url || !anonKey) {
+                alert('请输入 Project URL 和 Anon Key');
                 return;
             }
 
-            bmobConfig = { appId, apiKey };
-            localStorage.setItem(BMob_CONFIG_KEY, JSON.stringify(bmobConfig));
+            const config = { url, anonKey };
+            localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(config));
 
-            initBmob();
+            initSupabase(url, anonKey);
             closeSyncSettings();
             alert('同步设置已保存，数据将自动同步到云端');
         }
@@ -1541,9 +1548,9 @@
         // 断开同步
         function disconnectSync() {
             if (confirm('确定要断开云端同步吗？本地数据将保留，但不再与云端同步。')) {
-                bmobConfig = null;
-                localStorage.removeItem(BMob_CONFIG_KEY);
+                localStorage.removeItem(SUPABASE_CONFIG_KEY);
                 isSyncEnabled = false;
+                supabaseClient = null;
                 updateSyncStatus('offline', '未配置同步');
                 closeSyncSettings();
                 alert('已断开云端同步');
@@ -1605,7 +1612,7 @@
         // ==================== 初始化 ====================
         function init() {
             // 加载Bmob配置
-            loadBmobConfig();
+            loadSupabaseConfig();
 
             // 如果是首次使用（没有存储数据），保存一次初始数据
             if (!localStorage.getItem(STORAGE_KEY)) {
